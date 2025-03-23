@@ -4,6 +4,9 @@ import random
 import time
 import os
 
+
+
+
 class VirusSimulation:
     def __init__(self, config: dict, debug: bool = False) -> None:
         """
