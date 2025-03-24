@@ -51,6 +51,7 @@ class VirusSimulation:
         """
 
         print("Initializing default simulation")
+        self.name = config.get('name', "default")
         self.N: int = config.get('N', 1000)
         self.Pn: float = config.get('Pn', 0.02)
         self.Pi: float = config.get('Pi', 0.05)
@@ -154,7 +155,7 @@ class VirusSimulation:
         if self.graph.nodes[node]['vaccinated']:
             pk /= 10
         if self.graph.nodes[node]['asymptomatic']:
-            pk /= 10
+            pk /= 2
         return min(pk, 1.0)
 
     def calculate_recovery_probability(self, node: int) -> float:
@@ -206,15 +207,21 @@ class VirusSimulation:
 
         for node in self.graph.nodes():
             if self.graph.nodes[node]['status'] == 'sick':
+
                 if random.random() < self.calculate_death_probability(node):
                     new_deaths.append(node)
                 elif random.random() < self.calculate_recovery_probability(node):
                     new_recoveries.append(node)
+                
                 else:
                     for neighbor in self.graph.neighbors(node):
-                        if self.graph.nodes[neighbor]['status'] == 'healthy':
+                        if self.graph.nodes[neighbor]['status'] == 'healthy' or self.graph.nodes[neighbor]['status'] == 'recovered':
                             spread_prob: float = self.Pu
                             if self.graph.nodes[node]['vaccinated']:
+                                spread_prob /= 2
+                            if self.graph.nodes[neighbor]['status'] == 'recovered':
+                                spread_prob /= 1000
+                            if self.graph.nodes[node]['asymptomatic']:
                                 spread_prob /= 2
                             if self.graph.nodes[node]['masked']:
                                 if random.random() < self.mask_effectiveness:
@@ -458,8 +465,9 @@ if __name__ == "__main__":
     outputfile = "results.csv"
 
     defaultconfig = {
-        'N': 50000, # Number of people in the population
-        'Pn': 0.01, # Probability of a random connection between two people 
+        "name": "default",
+        'N': 500, # Number of people in the population
+        'Pn': 0.0075, # Probability of a random connection between two people 
         'Pi': 0.01, # Probability of a person being immunocompromised
         'Pv': 0.0, # Probability of a person initially vaccinated
         'Pa': 0.25, # Probability of a person being asymptomatic
@@ -467,37 +475,87 @@ if __name__ == "__main__":
         'mask_effectiveness': 0.8, # Effectiveness of masks
         'initial_infected': 10, # Number of initially infected people
         'Pu': 0.5, # Probability of a person spreading the virus
-        'Pc': 0.95, # Probability of a person catching the virus
+        'Pc': 0.15, # Probability of a person catching the virus
         'Pk': 0.015, # Probability of a person dying
-        'Pr': 0.06, # Probability of a person recovering
+        'Pr': 0.14, # Probability of a person recovering
         'Vaccine function': lambda step: 0 
     }
 
 
+    # Masking:
+
+    quartermask = copy.deepcopy(defaultconfig)
+    quartermask['Pm'] = 0.25
+    quartermask["name"] = "quartermask"
+
+    halfmask = copy.deepcopy(defaultconfig)
+    halfmask['Pm'] = 0.5
+    halfmask["name"] = "halfmask"
+
+    threefourthsmask = copy.deepcopy(defaultconfig)
+    threefourthsmask['Pm'] = 0.75
+    threefourthsmask["name"] = "threefourthsmask"
+
+    nineninemask = copy.deepcopy(defaultconfig)
+    nineninemask['Pm'] = 0.99
+    nineninemask["name"] = "nineninemask"
+
+    # Isolation
+
+    halfisolation = copy.deepcopy(defaultconfig)
+    halfisolation['Pn'] /= 2
+    halfmask["name"] = "halfisolation"
+
+    quarterisolation = copy.deepcopy(defaultconfig)
+    quarterisolation['Pn'] /= 4
+    quartermask["name"] = "quarterisolation"
+
+    tenthisolation = copy.deepcopy(defaultconfig)
+    tenthisolation['Pn'] /= 10
+    quartermask["name"] = "tenthisolation"
+
+    # Vaccination
+
     halfvacconfig = copy.deepcopy(defaultconfig)
     halfvacconfig['Pv'] = 0.5
-
-    print(halfvacconfig)
+    halfisolation["name"] = "halfvacconfig"
 
     threefourthsvacconfig = copy.deepcopy(defaultconfig)
     threefourthsvacconfig['Pv'] = 0.75
-
-    print(threefourthsvacconfig)
+    threefourthsvacconfig["name"] = "threefourthsvacconfig"
 
     nineninevacconfig = copy.deepcopy(defaultconfig)
     nineninevacconfig['Pv'] = 0.99
+    nineninevacconfig["name"] = "nineninevacconfig"
 
-    halfvaccresults = runmultisim(halfvacconfig, num_simulations=30, debug=True)
-    halfvaccdf = pd.DataFrame(halfvaccresults)
-    halfvaccdf.to_csv("halfvaccresults.csv")
+    # Combo: 75% masks and 75% vaccination
 
-    threefourthsvaccresults = runmultisim(threefourthsvacconfig, num_simulations=30, debug=True)
-    threefourthsvaccdf = pd.DataFrame(threefourthsvaccresults)
-    threefourthsvaccdf.to_csv("threefourthsvaccresults.csv")
+    threefourthsvacmaskconfig = copy.deepcopy(defaultconfig)
+    threefourthsvacmaskconfig['Pm'] = 0.75
+    threefourthsvacmaskconfig['Pv'] = 0.75
+    threefourthsvacmaskconfig['name'] = "threefourthsvacmaskconfig"
 
-    nineninevaccresults = runmultisim(nineninevacconfig, num_simulations=30, debug=True)
-    nineninevaccdf = pd.DataFrame(nineninevaccresults)
-    nineninevaccdf.to_csv("nineninevaccresults.csv")
+    #Combo: Tenth Isolation and 80% masking
+    tenthisolationmaskconfig = copy.deepcopy(defaultconfig)
+    tenthisolationmaskconfig['Pm'] = 0.8
+    tenthisolationmaskconfig['Pn'] /= 10
+    tenthisolationmaskconfig['name'] = "tenthisolationmaskconfig"
+    
+    # Covid combo: 75% vaccination, 75% masking, Tenth isolation
 
+    covidcomboconfig = copy.deepcopy(defaultconfig)
+    covidcomboconfig['Pm'] = 0.75
+    covidcomboconfig['Pv'] = 0.75
+    covidcomboconfig['Pn'] /= 10
+    covidcomboconfig['name'] = "covidcomboconfig"
+
+    configs = [defaultconfig, quartermask, halfmask, threefourthsmask, nineninemask, halfisolation, quarterisolation, tenthisolation, halfvacconfig, threefourthsvacconfig, nineninevacconfig, threefourthsvacmaskconfig, tenthisolationmaskconfig, covidcomboconfig]
+    for config in configs:
+        name = config['name']
+        print(f"Running {name}")
+        results = runmultisim(config, 2, debug=False)
+        df = pd.DataFrame(results)
+        df.to_csv(f"{name}.csv", index=False)
+        print(f"Done {name}")
 
 
