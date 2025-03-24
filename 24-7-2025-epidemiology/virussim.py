@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 import random
 import time
 import os
+from typing import List, Dict, Tuple, Union, Callable
+import pandas as pd
+import copy
 
 
 
@@ -105,13 +108,20 @@ class VirusSimulation:
             print("Initializing simulation with the following parameters:")
             print(f"Population: {self.N}")
             print(f"Probability of random connection: {self.Pn}")
-        self.graph = nx.erdos_renyi_graph(self.N, self.Pn)
+        self.graph = nx.fast_gnp_random_graph(self.N, self.Pn)
         for node in self.graph.nodes():
             # add code hereto show initilaizing nodes:
             self.graph.nodes[node]['status'] = 'healthy'
             self.graph.nodes[node]['immunocompromised'] = random.random() < self.Pi
             self.graph.nodes[node]['asymptomatic'] = not self.graph.nodes[node]['immunocompromised'] and random.random() < self.Pa
-            self.graph.nodes[node]['vaccinated'] = random.random() < self.Pv
+            
+            #if immuno compromised, 20% chance of being vaccinated
+            if self.graph.nodes[node]['immunocompromised']:
+                self.graph.nodes[node]['vaccinated'] = random.random() < self.Pv * 0.2
+            else:
+                self.graph.nodes[node]['vaccinated'] = random.random() < self.Pv
+            
+
             self.graph.nodes[node]['masked'] = random.random() < self.Pm
             #print(f"Node {node} is {self.graph.nodes[node]}")
 
@@ -246,13 +256,7 @@ class VirusSimulation:
         self.stats['recovered'].append(current_status['recovered'])
         self.stats['dead'].append(current_status['dead'])
 
-        if debug:
-            print(f"Day: {step}")
-            print(f"{current_status['healthy']} less healthy")
-            print(f"{current_status['sick']} more sick")
-            print(f"{current_status['recovered']} more recovered")
-            print(f"{current_status['dead']} more dead")
-            print(f"{current_status['vaccinated']} more vaccinated")
+        if debug: time.sleep(0.01)
         return current_status['sick'] > 0
 
     def run_simulation(self, max_steps: int = 100, iteration: int = 0, step: int = 0, debug: bool = False) -> Tuple[int, Dict[str, List[int]]]:
@@ -331,7 +335,7 @@ class VirusSimulation:
         plt.grid(True)
         plt.show()
 
-    def print_final_report(self, steps: int, stats: Dict[str, List[int]], config: Dict[str, Union[int, float]]) -> Dict[str, Union[int, float]]:
+    def print_final_report(self, i: int = None) -> Dict[str, Union[int, float]]:
         """
         Print the final report of the simulation.
 
@@ -349,58 +353,72 @@ class VirusSimulation:
         Dict[str, Union[int, float]]
             The final simulation statistics
         """
-        print("Final Report:")
-        print(f"Simulation completed in {steps} days")
-        print(f"Final Counts:")
-        print(f"Healthy: {stats['healthy'][-1]}")
-        print(f"Sick: {stats['sick'][-1]}")
-        print(f"Vaccinated: {stats['vaccinated'][-1]}")
-        print(f"Recovered: {stats['recovered'][-1]}")
-        print(f"Deaths: {stats['dead'][-1]}")
-        print(f"Percentage survived: {(stats['recovered'][-1] + stats['healthy'][-1]) / config['N'] * 100:.2f}%")
-        print(f"Percentage died: {stats['dead'][-1] / config['N'] * 100:.2f}%")
-        print(f"Percentage untouched: {stats['healthy'][-1] / config['N'] * 100:.2f}%")
+        if not self.stats:
+            raise ValueError("No simulation statistics found")
+        if not self.graph:
+            raise ValueError("No simulation graph found")
 
-        immunocompromised_survived = sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['immunocompromised'] and self.graph.nodes[node]['status'] != 'dead')
-        print(f"Percentage of immunocompromised people survived: {immunocompromised_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['immunocompromised']) or 1) * 100:.2f}%")
-        vaccinated_survived = sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['vaccinated'] and self.graph.nodes[node]['status'] != 'dead')
-        print(f"Percentage of vaccinated people survived: {vaccinated_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['vaccinated']) or 1) * 100:.2f}%")
-        unvaccinated_survived = sum(1 for node in self.graph.nodes() if not self.graph.nodes[node]['vaccinated'] and self.graph.nodes[node]['status'] != 'dead')
-        print(f"Percentage of unvaccinated people survived: {unvaccinated_survived / (sum(1 for node in self.graph.nodes() if not self.graph.nodes[node]['vaccinated']) or 1) * 100:.2f}%")
+        # clear the console
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print("Iteration: ", i if i is not None else "Final")
+        print("Final Report:")
+        print(f"Simulation completed in {self.steps} days")
+        print(f"Final Counts:")
+        print(f"Healthy: {self.stats['healthy'][-1]}")
+        print(f"Sick: {self.stats['sick'][-1]}")
+        print(f"Vaccinated: {self.stats['vaccinated'][-1]}")
+        print(f"Recovered: {self.stats['recovered'][-1]}")
+        print(f"Deaths: {self.stats['dead'][-1]}")
+        print(f"Percentage survived: {(self.stats['recovered'][-1] + self.stats['healthy'][-1]) / self.N * 100:.2f}%")
+        print(f"Percentage died: {self.stats['dead'][-1] / self.N * 100:.2f}%")
+        print(f"Percentage untouched: {self.stats['healthy'][-1] / self.N * 100:.2f}%")
+
+        immunocompromised_survived = sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('immunocompromised', False) and self.graph.nodes[node]['status'] != 'dead')
+        print(f"Percentage of immunocompromised people survived: {immunocompromised_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('immunocompromised', False)) or 1) * 100:.2f}%")
+        vaccinated_survived = sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('vaccinated', False) and self.graph.nodes[node]['status'] != 'dead')
+        print(f"Percentage of vaccinated people survived: {vaccinated_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('vaccinated', False)) or 1) * 100:.2f}%")
+        unvaccinated_survived = sum(1 for node in self.graph.nodes() if not self.graph.nodes[node].get('vaccinated', False) and self.graph.nodes[node]['status'] != 'dead')
+        print(f"Percentage of unvaccinated people survived: {unvaccinated_survived / (sum(1 for node in self.graph.nodes() if not self.graph.nodes[node].get('vaccinated', False)) or 1) * 100:.2f}%")
 
         final_stats = {
-            'healthy': stats['healthy'][-1],
-            'sick': stats['sick'][-1],
-            'recovered': stats['recovered'][-1],
-            'dead': stats['dead'][-1],
-            'percentage_survived': (stats['recovered'][-1] + stats['healthy'][-1]) / config['N'] * 100,
-            'percentage_died': stats['dead'][-1] / config['N'] * 100,
-            'percentage_untouched': stats['healthy'][-1] / config['N'] * 100,
-            'percentage_immunocompromised_survived': immunocompromised_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['immunocompromised']) or 1) * 100,
-            'percentage_vaccinated_survived': vaccinated_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node]['vaccinated']) or 1) * 100,
-            'percentage_unvaccinated_survived': unvaccinated_survived / (sum(1 for node in self.graph.nodes() if not self.graph.nodes[node]['vaccinated']) or 1) * 100,
-            'vaccinated': stats['vaccinated'][-1]
+            'steps': self.steps,
+            'healthy': self.stats['healthy'][-1],
+            'sick': self.stats['sick'][-1],
+            'recovered': self.stats['recovered'][-1],
+            'dead': self.stats['dead'][-1],
+            'percentage_survived': (self.stats['recovered'][-1] + self.stats['healthy'][-1]) / self.N * 100,
+            'percentage_died': self.stats['dead'][-1] / self.N * 100,
+            'percentage_untouched': self.stats['healthy'][-1] / self.N * 100,
+            'percentage_immunocompromised_survived': immunocompromised_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('immunocompromised', False)) or 1) * 100,
+            'percentage_vaccinated_survived': vaccinated_survived / (sum(1 for node in self.graph.nodes() if self.graph.nodes[node].get('vaccinated', False)) or 1) * 100,
+            'percentage_unvaccinated_survived': unvaccinated_survived / (sum(1 for node in self.graph.nodes() if not self.graph.nodes[node].get('vaccinated', False)) or 1) * 100,
+            'vaccinated': self.stats['vaccinated'][-1]
         }
         return final_stats
 
-        
-if __name__ == "__main__":
-    config = {
-        'N': 20000, # Number of people in the population
-        'Pn': 0.035, # Probability of a random connection between two people
-        'Pi': 0.04, # Probability of a person being immunocompromised
-        'Pv': 1.0, # Probability of a person initially vaccinated
+'''
+config = {
+        'N': 50000, # Number of people in the population
+        'Pn': 0.01, # Probability of a random connection between two people
+        'Pi': 0.01, # Probability of a person being immunocompromised
+        'Pv': 0.0, # Probability of a person initially vaccinated
         'Pa': 0.25, # Probability of a person being asymptomatic
-        'Pm': 0.0, # Probability of a person wearing a mask
+        'Pm': 0.005, # Probability of a person wearing a mask
         'mask_effectiveness': 0.8, # Effectiveness of masks
         'initial_infected': 10, # Number of initially infected people
-        'Pu': 0.95, # Probability of a person spreading the virus
+        'Pu': 0.5, # Probability of a person spreading the virus
         'Pc': 0.95, # Probability of a person catching the virus
         'Pk': 0.015, # Probability of a person dying
-        'Pr': 0.05, # Probability of a person recovering
+        'Pr': 0.06, # Probability of a person recovering
         'Vaccine function': lambda step: 0
     }
+'''
+
+
+def runmultisim(config, num_simulations, debug=False):
+    print("Initializing simulation")
     total_stats = {
+        'steps': [],
         'healthy': [],
         'sick': [],
         'vaccinated': [],
@@ -414,13 +432,10 @@ if __name__ == "__main__":
         'percentage_unvaccinated_survived': [],
         
     }
-    for i in range(1):
-        print("Initializing simulation")
+    for i in range(num_simulations):
         sim = VirusSimulation(config)
-        print(f"Simulation started with {config['N']} people and {config['initial_infected']} initial infections")
-        steps, stats = sim.run_simulation(max_steps=1000, iteration=i, debug=True)
-        print(f"Simulation completed in {steps} days")
-        final_stats = sim.print_final_report()
+        steps, stats = sim.run_simulation(max_steps=1000, iteration=i, debug=debug)
+        final_stats = sim.print_final_report(i = i)
         for key, value in final_stats.items():
             total_stats[key].append(value)
     os.system('cls' if os.name == 'nt' else 'clear') # Clear console
@@ -428,6 +443,61 @@ if __name__ == "__main__":
         if "percentage" in key:
             print(f"{key}: {sum(value)/len(value):.2f}%")
         else:
-            print(f"{key}: {sum(value)/len(value):.2f}")    
+            print(f"{key}: {sum(value)/len(value):.2f}")
     print("Simulation completed")
+
+    # append average of each stat at the end
+    for key, value in total_stats.items():
+        total_stats[key].append(sum(value)/len(value))
+    #set the day of the last one to 999
+    #total_stats['steps'][-1] *= num_simulations
+    return total_stats
+
+
+if __name__ == "__main__":
+    outputfile = "results.csv"
+
+    defaultconfig = {
+        'N': 50000, # Number of people in the population
+        'Pn': 0.01, # Probability of a random connection between two people 
+        'Pi': 0.01, # Probability of a person being immunocompromised
+        'Pv': 0.0, # Probability of a person initially vaccinated
+        'Pa': 0.25, # Probability of a person being asymptomatic
+        'Pm': 0.005, # Probability of a person wearing a mask
+        'mask_effectiveness': 0.8, # Effectiveness of masks
+        'initial_infected': 10, # Number of initially infected people
+        'Pu': 0.5, # Probability of a person spreading the virus
+        'Pc': 0.95, # Probability of a person catching the virus
+        'Pk': 0.015, # Probability of a person dying
+        'Pr': 0.06, # Probability of a person recovering
+        'Vaccine function': lambda step: 0 
+    }
+
+
+    halfvacconfig = copy.deepcopy(defaultconfig)
+    halfvacconfig['Pv'] = 0.5
+
+    print(halfvacconfig)
+
+    threefourthsvacconfig = copy.deepcopy(defaultconfig)
+    threefourthsvacconfig['Pv'] = 0.75
+
+    print(threefourthsvacconfig)
+
+    nineninevacconfig = copy.deepcopy(defaultconfig)
+    nineninevacconfig['Pv'] = 0.99
+
+    halfvaccresults = runmultisim(halfvacconfig, num_simulations=30, debug=True)
+    halfvaccdf = pd.DataFrame(halfvaccresults)
+    halfvaccdf.to_csv("halfvaccresults.csv")
+
+    threefourthsvaccresults = runmultisim(threefourthsvacconfig, num_simulations=30, debug=True)
+    threefourthsvaccdf = pd.DataFrame(threefourthsvaccresults)
+    threefourthsvaccdf.to_csv("threefourthsvaccresults.csv")
+
+    nineninevaccresults = runmultisim(nineninevacconfig, num_simulations=30, debug=True)
+    nineninevaccdf = pd.DataFrame(nineninevaccresults)
+    nineninevaccdf.to_csv("nineninevaccresults.csv")
+
+
 
