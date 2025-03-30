@@ -702,7 +702,7 @@ class VirusSimulation():
             "Day": self.population.days,
             "original_healthy": self.population.initialpopulation,
             "end_healthy": self.population.gethealthy(),
-            "orignal_infected": self.population.initial_infected,
+            "original_infected": self.population.initial_infected,
             "end_infected": self.population.getinfected(),
             "sick": self.population.getsick(),
             "recovered": self.population.getrecovered(),
@@ -754,7 +754,7 @@ class VirusSimulation():
         while self.step(debug) and self.population.days<max_steps:
             if not debug:
                 print(f"Day: {self.population.days}{6-str(self.population.days)}", end="\r")
-        return self
+        return True
 
 
 if __name__ == "__main__":

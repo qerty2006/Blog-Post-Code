@@ -1,0 +1,27 @@
+,0
+Day, 126.3
+original_healthy, 50000.0
+end_healthy, 42406.8
+original_infected, 10.0
+end_infected, 0.0
+sick, 0.0
+recovered, 24462.1
+untouched, 17944.7
+dead, 7593.2
+percentage_died, 0.15
+percentage_untouched, 0.36
+notfullyvaccinated, 0.0
+original_vaccinated, 0.0
+vaccinated, 42358.0
+end_vaccinated_percentage, 0.85
+original_immunocompromised, 2000.0
+immunocompromised, 2003.7
+end_immunocompromised_percentage, 0.04
+original_asymptomatic, 5000.0
+asymptomatic, 4809.1
+end_asymptomatic_percentage, 0.1
+isolated, 40804.6
+end_isolated_percentage, 0.82
+original_masked, 0.0
+masked, 41115.4
+end_masked_percentage, 0.82
