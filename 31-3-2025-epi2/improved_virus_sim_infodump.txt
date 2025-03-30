@@ -1,0 +1,55 @@
+things to add:
+
+- Complex virus: 
+
+    Virus now has an incubation period, and can be spread during that period with a lower rate of transmission (Person counts as "infected" rather than sick)
+    - if not vaccinated, person will become sick after incubation period and only then can start recovery
+    - if vaccinated, person can start recovering during incubation period
+    - Cannot die during incubation period, but can spread
+
+    No mutations will be done, and no virus competition
+    
+- Different Transmission dynamics:
+
+    instead of just 2 values Pu, Pc; they are arrays that act in pairs,
+    This also means that the masking effect can be an array
+
+    To trigger:
+
+    - Before running masking calc roll random index of Pu, and use that index for all calculations,
+        this simulating interaction through coughing, sneezing, direct contact, etc.
+        and Masking effects include wearing masks, washing hands, elbow coughing, etc.
+    - So odds of catching infection from sick person on a given day is: 
+        Pu[i] * Pc[i] *(1-(mask_effectiveness[i] if masked else 0) ) * (1-(mask_effectiveness[i] if masked else 0))
+
+
+- Complex Vaccinations: Pv has multiple components now:
+
+    2 types of vaccines:
+        - Long term immunity: fewer immunocompromised people can get this vaccine but it is more effective in the long run
+        - Short term immunity: more people can get this vaccine but it is less effective in the long run, wearing out after a few months
+        - Time for vaccine to take effect: Only after this time will a person be fully vaccinated and thus have the vaccination effects
+
+        what is key is that the size of this sim is small enough that the only part that matters is how many people can get the vaccine, not the duration of effect
+
+    
+- Dynamic Outbreak:
+    Simulate public reaction by giving people the ability to change their behavior based on the current situation
+    - People can choose to wear masks or not based on the overall percentage of sick rate
+    - People can choose to isolate themselves based on the overall percentage of sick rate, and also while they are sick (both result in 5% contact rate)
+    - People can choose to get vaccinated based on the overall percentage of sick rate if they are healthy
+
+
+- Public Health Measures:
+    Upon a given threshold of infections, trigger a public health measure:
+    - Mask mandate: all people must wear masks (resulting in 90% mask wearing rate)
+    - Total lockdown: all people must isolate themselves (resulting in 5% contact rate for sick people guaranteed when incubation ends, 10% contact rate for healthy people)
+    - Vaccination campaign: all people must get vaccinated (resulting in 90% vaccination rate for short term vaccine, 60% for long term vaccine if vaccine exists)
+
+
+This will require an overhaul of how the simulation works, now actually having a Person Class that will be at each node.
+
+VirusSim will have the following components:
+    - A Virus that will infect others:
+    - A Population to be infected:
+    - A Government that will implement public health measures based on the current situation

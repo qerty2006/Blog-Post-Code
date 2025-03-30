@@ -1,6 +1,9 @@
 import networkx as nx
 import random
 from typing import List, Dict, Tuple, Union, Callable
+import os
+import matplotlib as plotty
+
 
 
 '''
@@ -243,7 +246,7 @@ class Person:
         self.incubation_period -= 1 if self.incubation_period > 0 else 0
     
     def vaccinate(self, vaccine_time):
-        self.vaccine_time = vaccine_time if self.vaccine_time == 0 and self.status != 'sick' else 0
+        self.vaccine_time = vaccine_time if (self.vaccine_time == 0 and self.status != 'sick') else self.vaccine_time
         
     def activatevaccine(self):
         self.vaccinated = self.vaccine_time == 1
@@ -310,6 +313,7 @@ class Population:
             'isolate_floor': 0.1,
             'isolate_fail': 0.1,
             'vaccinate_threshold': 0.1,
+            'vaccinate_floor': 0.1,
             'vaccinate_fail': 0.1
         }
         
@@ -330,7 +334,7 @@ class Population:
                     'status': 'healthy',
                     'immunocompromised': random.random() < self.immuno_odds,
                     'asymptomatic': (random.random() < self.asymptomatic_odds) and not (random.random() < self.immuno_odds),
-                    'vaccinated': random.random() < (self.vaccinated_odds if not (random.random() < self.immuno_odds) else self.immunovacodds),
+                    'vaccinated': random.random() < (self.vaccinated_odds if not (random.random() < self.immuno_odds) else self.immunovacodds * self.vaccinated_odds),
                     'masked': random.random() < self.mask_odds,
                     'recovered': False
                 })
@@ -453,18 +457,34 @@ class Government:
         self.vaccinate_threshold = config.get('vaccinate_threshold', 0.1)
         self.vaccinate_floor = config.get('vaccinate_floor', 0.1)
         self.vaccinate_amount = config.get('vaccinate_amount', 0.1)
-
+        self.vaccinate_fail = config.get('vaccinate_fail', 0.1)
+        
         self.mask_threshold = config.get('mask_threshold', 0.1)
         self.mask_floor = config.get('mask_floor', 0.1)
         self.mask_amount = config.get('mask_amount', 0.1)
+        self.mask_fail = config.get('mask_fail', 0.1)
 
         self.isolate_threshold = config.get('isolate_threshold', 0.1)
         self.isolate_floor = config.get('isolate_floor', 0.1)
         self.isolate_amount = config.get('isolate_amount', 0.1)
+        self.isolate_fail = config.get('isolate_fail', 0.1)
 
         self.vaccine_mandate = False
         self.mask_mandate = False
         self.isolate_mandate = False
+        
+    def __str__(self):
+        s = "Government:\n"
+        s += f"  vaccinate_threshold: {self.vaccinate_threshold*100:.2f}% to activate mandate\n"
+        s += f"  vaccinate_floor: {self.vaccinate_floor*100:.2f}% to deactivate mandate\n"
+        s += f"  vaccinate_amount: {self.vaccinate_amount*100:.2f}%\n\n"    
+        s += f"  mask_threshold: {self.mask_threshold*100:.2f}% to activate mandate\n"
+        s += f"  mask_floor: {self.mask_floor*100:.2f}% to deactivate mandate\n"    
+        s += f"  mask_amount: {self.mask_amount*100:.2f}%\n\n"
+        s += f"  isolate_threshold: {self.isolate_threshold*100:.2f}% to activate mandate\n"
+        s += f"  isolate_floor: {self.isolate_floor*100:.2f}% to deactivate mandate\n"
+        s += f"  isolate_amount: {self.isolate_amount*100:.2f}%\n\n"
+        return s
         
 class VirusSimulation():
     def __init__(self, config):
@@ -545,108 +565,94 @@ class VirusSimulation():
                 person.sicken()'''
         infected_percent = (population.getinfected()+population.getsick())/population.getpopulation()
         total_virus = population.getinfected() + population.getsick()
-        mask_fail_value = 1 - population.mask_fail
-        isolate_fail_value = 1 - population.isolate_fail
-        vaccinate_fail_value = 1 - population.vaccinate_fail
-        
+        masked_percent = population.getmasked()/population.getpopulation()
+        isolated_percent = population.getisolated()/population.getpopulation()
+        vaccinated_percent = population.getvaccinated()/population.getpopulation()
+        mask_odds = 1 - population.mask_fail
+        isolate_odds = 1 - population.isolate_fail
+        vaccinate_odds = 1 - population.vaccinate_fail
         population.days += 1
-        
-        deadnodes = []
-        if total_virus > 0:
-            k = 0
-            for p1 in population.graph.nodes:
-                print(k:=k+1, "out of", len(population.graph.nodes),f"status: {population.graph.nodes[p1]['person'].status}", end='\r')
-                person = population.graph.nodes[p1]["person"]
+        deadnodes = set()
+        infectnodes = set()
+
+        def person_step(p1):
+            person = population.graph.nodes[p1]["person"]
                 
-                masked_percent = population.getmasked()/population.getpopulation()
-                isolated_percent = population.getisolated()/population.getpopulation()
-                vaccinated_percent = population.getvaccinated()/population.getpopulation()
+            if government.mask_mandate:
+                if masked_percent < government.mask_amount:
+                    mask_chance = (1-government.mask_fail) if person.status != 'sick' else (1-government.mask_fail/10)
+                    if random.random() < mask_chance:
+                        person.mask()
+            else:
+                if infected_percent > population.mask_threshold:
+                    mask_chance = mask_odds if person.status != 'sick' else (1-(population.mask_fail/3))
+                    if random.random() < mask_chance:
+                        person.mask()
+                elif infected_percent < population.mask_floor:
+                    unmask_chance = population.mask_fail if person.status != 'sick' else population.mask_fail/3
+                    if random.random() < unmask_chance:
+                        person.unmask()
 
+            if government.isolate_mandate:
+                if isolated_percent < government.isolate_amount:
+                    isolate_chance = (1-government.isolate_fail) if person.status != 'sick' else (1-government.isolate_fail/10)
+                    if random.random() < isolate_chance:
+                        person.isolate()
+            else:
+                if infected_percent > population.isolate_threshold:
+                    isolate_chance = isolate_odds if person.status != 'sick' else (1-(population.isolate_fail/3))
+                    if random.random() < isolate_chance:
+                        person.isolate()
+                elif infected_percent < population.isolate_floor:
+                    unisolate_chance = population.isolate_fail if person.status != 'sick' else population.isolate_fail/3
+                    if random.random() < unisolate_chance:
+                        person.unisolate()
 
-                if government.mask_mandate:
-                    if masked_percent < government.mask_amount:
-                        mask_chance = 0.9 if person.status != 'sick' else 0.99
-                        if random.random() < mask_chance:
-                            person.mask()
-                else:
-                    if infected_percent > population.mask_threshold:
-                        mask_chance = mask_fail_value if person.status != 'sick' else mask_fail_value/3
-                        if random.random() < mask_chance:
-                            person.mask()
-                    elif infected_percent < population.mask_floor:
-                        unmask_chance = population.mask_fail if person.status != 'sick' else population.mask_fail/3
-                        if random.random() < unmask_chance:
-                            person.unmask()
+            if government.vaccine_mandate:
+                if vaccinated_percent < government.vaccinate_amount:
+                    if random.random() < (1-government.vaccinate_fail):
+                        person.vaccinate(virus.vaccine_time)
+            else:
+                if infected_percent > population.vaccinate_threshold:
+                    if random.random() < vaccinate_odds:
+                        person.vaccinate(virus.vaccine_time)
 
-                if government.isolate_mandate:
-                    if isolated_percent < government.isolate_amount:
-                        isolate_chance = 0.4 if person.status != 'sick' else 0.95
-                        if random.random() < isolate_chance:
-                            person.isolate()
-                else:
-                    if infected_percent > population.isolate_threshold:
-                        isolate_chance = isolate_fail_value if person.status != 'sick' else isolate_fail_value/3
-                        if random.random() < isolate_chance:
-                            person.isolate()
-                    elif infected_percent < population.isolate_floor:
-                        unisolate_chance = population.isolate_fail if person.status != 'sick' else population.isolate_fail/3
-                        if random.random() < unisolate_chance:
-                            person.unisolate()
-
-                if government.vaccine_mandate:
-                    if vaccinated_percent < government.vaccinate_amount:
-                        if random.random() < 0.51:
-                            person.vaccinate(virus.vaccine_time)
-                else:
-                    if infected_percent > population.vaccinate_threshold:
-                        if random.random() < vaccinate_fail_value:
-                            person.vaccinate(virus.vaccine_time)
-
-                # check for infections:
-                '''
-                if person.status == 'sick' or (person.status == 'infected' and person.incubation_period < 3):
-                    for p2 in population.graph.neighbors(p1):
-                        neighbor = population.graph.nodes[p2]["person"]
-                        if neighbor.status == 'healthy' and random.random() < (population.connection_odds if person.isolated else 1) * (population.connection_odds if neighbor.isolated else 1):
-
-
-                            recovery_chance = (1 - virus.recovered['infection'] if person.recovered else 1) * (1 - virus.recovered['contraction'] if neighbor.recovered else 1)
-                            vaccine_chance = (1 - virus.vaccine['infection'] if person.vaccinated else 1) * (1 - virus.vaccine['contraction'] if neighbor.vaccinated else 1)
-                            immuno_chance = (1 - virus.immuno['infection'] if person.immunocompromised else 1) * (1 - virus.immuno['contraction'] if neighbor.immunocompromised else 1)
-                            asymptomatic_chance = (1 - virus.asymptomatic['infection'] if person.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if neighbor.asymptomatic else 1)
-                            i = random.randint(0, len(virus.infectious) - 1)
-                            mask_chance = (1 - virus.effectiveness[i] if person.masked else 1) * (1 - virus.effectiveness[i] if neighbor.masked else 1)
-                            normal_odds = (virus.infectious[i] if person.masked else 1) * (virus.contract[i] if neighbor.masked else 1)             
-                            if random.random() < (recovery_chance * vaccine_chance * immuno_chance * asymptomatic_chance * mask_chance * normal_odds):
-                                neighbor.infect(virus.incubation_period)
-            
-                '''
-                if person.status == 'sick' or (person.status == 'infected' and person.incubation_period < 3):
-                    for p2 in population.graph.neighbors(p1):
-                        neighbor = population.graph.nodes[p2]["person"]
-                        i = random.randint(0, len(virus.infectious) - 1)
-                        if neighbor.status == 'healthy' and random.random() < (population.connection_odds if person.isolated else 1) * (population.connection_odds if neighbor.isolated else 1):
-                            if random.random() < (virus.infectious[i]) * (virus.contract[i]) * (1 - virus.immuno['infection'] if person.immunocompromised else 1) * (1 - virus.immuno['contraction'] if neighbor.immunocompromised else 1):
-                                if random.random() < (1 - virus.vaccine['infection'] if person.vaccinated else 1) * (1 - virus.vaccine['contraction'] if neighbor.vaccinated else 1):
-                                    if random.random() < (1- virus.effectiveness[i] if person.masked else 1) * (1 - virus.effectiveness[i] if neighbor.masked else 1):
-                                        if random.random() < (1 - virus.recovered['infection'] if person.recovered else 1) * (1 - virus.recovered['contraction'] if neighbor.recovered else 1):
-                                            if random.random() < (1 - virus.asymptomatic['infection'] if person.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if neighbor.asymptomatic else 1):
-                                                neighbor.infect(virus.incubation_period)
+            # check for infections:
+            if person.status == 'sick' or (person.status == 'infected' and person.incubation_period < 3):
+                for p2 in population.graph.neighbors(p1):
+                    neighbor = population.graph.nodes[p2]["person"]
+                    i = random.randint(0, len(virus.infectious) - 1)
+                    if neighbor.status == 'healthy' and random.random() < (population.connection_odds if person.isolated else 1) * (population.connection_odds if neighbor.isolated else 1):
+                        if random.random() < (virus.infectious[i]) * (virus.contract[i]) * (1 - virus.immuno['infection'] if person.immunocompromised else 1) * (1 - virus.immuno['contraction'] if neighbor.immunocompromised else 1):
+                            if random.random() < (1 - virus.vaccine['infection'] if person.vaccinated else 1) * (1 - virus.vaccine['contraction'] if neighbor.vaccinated else 1):
+                                if random.random() < (1- virus.effectiveness[i] if person.masked else 1) * (1 - virus.effectiveness[i] if neighbor.masked else 1):
+                                    if random.random() < (1 - virus.recovered['infection'] if person.recovered else 1) * (1 - virus.recovered['contraction'] if neighbor.recovered else 1):
+                                        if random.random() < (1 - virus.asymptomatic['infection'] if person.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if neighbor.asymptomatic else 1):
+                                            infectnodes.add(p2)
 
 
 
-                if person.status == 'sick':
-                    if random.random() < virus.death * (virus.asymptomatic['death'] if person.asymptomatic else 1) * (virus.immuno['death'] if person.immunocompromised else 1) * (virus.vaccine['death'] if person.vaccinated else 1) * (virus.recovered['death'] if person.recovered else 1):
-                        deadnodes.append(p1)
-                    elif random.random() < virus.recovery * (virus.asymptomatic['recovery'] if person.asymptomatic else 1) * (virus.immuno['recovery'] if person.immunocompromised else 1) * (virus.vaccine['recovery'] if person.vaccinated else 1) * (virus.recovered['recovery'] if person.recovered else 1):
-                        person.recover()
+            if person.status == 'sick':
+                if random.random() < virus.death * (virus.asymptomatic['death'] if person.asymptomatic else 1) * (virus.immuno['death'] if person.immunocompromised else 1) * (virus.vaccine['death'] if person.vaccinated else 1) * (virus.recovered['death'] if person.recovered else 1):
+                    deadnodes.add(p1)
+                elif random.random() < virus.recovery * (virus.asymptomatic['recovery'] if person.asymptomatic else 1) * (virus.immuno['recovery'] if person.immunocompromised else 1) * (virus.vaccine['recovery'] if person.vaccinated else 1) * (virus.recovered['recovery'] if person.recovered else 1):
+                    person.recover()
 
-                if person.status == 'infected':
-                    person.sicken()
-                    if person.vaccinated and (random.random() < virus.vaccine['recovery']):
-                        person.incubation_period = 0
-                        person.recover()
-            infected_percent = population.getinfected() / population.getpopulation()
+            if person.status == 'infected':
+                person.sicken()
+                if person.vaccinated and (random.random() < virus.vaccine['recovery']):
+                    person.incubation_period = 0
+                    person.recover()
+        
+        if total_virus > 0:
+            k : int = 0
+            for p1 in population.graph.nodes:
+                k += 1
+                print(f"\r {k} out of {len(population.graph.nodes)} status: {population.graph.nodes[p1]['person'].status}", end='')
+                person_step(p1)
+                
+                
+            infected_percent = (population.getinfected()+population.getsick()) / population.getpopulation()
             dead_percent = population.getdead() / population.getpopulation()
             
             hit_threshold = lambda x : (infected_percent > x) or (dead_percent > x)
@@ -659,48 +665,45 @@ class VirusSimulation():
 
             #remove dead people
             for dead in deadnodes:
-                population.graph.remove_node(dead)
+                population.killnode(dead)
+            for infected in infectnodes:
+                population.graph.nodes[infected]["person"].infect(virus.incubation_period)
+
             return (population.getsick()+population.getinfected())   
           
-    def catchodds(self,person1:Person,person2:Person)->float:
-        virus = self.virus
-        recovery_chance = (1 - virus.recovered['infection'] if person1.recovered else 1) * (1 - virus.recovered['contraction'] if person2.recovered else 1)
-        vaccine_chance = (1 - virus.vaccine['infection'] if person1.vaccinated else 1) * (1 - virus.vaccine['contraction'] if person2.vaccinated else 1)
-        immuno_chance = (1 - virus.immuno['infection'] if person1.immunocompromised else 1) * (1 - virus.immuno['contraction'] if person2.immunocompromised else 1)
-        asymptomatic_chance = (1 - virus.asymptomatic['infection'] if person1.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if person2.asymptomatic else 1)
-        i = random.randint(0, len(virus.infectious) - 1)
-        mask_chance = (1 - virus.effectiveness[i] if person1.masked else 1) * (1 - virus.effectiveness[i] if person2.masked else 1)
-        normal_odds = (virus.infectious[i]) * (virus.contract[i])             
-        return recovery_chance * vaccine_chance * immuno_chance * asymptomatic_chance * mask_chance * normal_odds
-
-
-
 
 
     def __str__(self):
         s = f"Day {self.population.days}:\n"
-        s += f"  healthy: {self.population.gethealthy()}\n"
-        s += f"  sick: {self.population.getsick()}\n"
-        s += f"  infected: {self.population.getinfected()}\n"
-        s += f"  recovered: {self.population.getrecovered()}\n"
-        s += f"  dead: {self.population.getdead()}\n\n"
+        s += f"  healthy: {self.population.gethealthy()} ({self.population.gethealthy()/self.population.initialpopulation:.2%})\n"
+        s += f"  infected: {self.population.getinfected()} ({self.population.getinfected()/self.population.initialpopulation:.2%})\n"
+        s += f"  sick: {self.population.getsick()} ({self.population.getsick()/self.population.initialpopulation:.2%})\n"
+        s += f"  recovered: {self.population.getrecovered()} ({self.population.getrecovered()/self.population.initialpopulation:.2%})\n"
+        s += f"  untouched: {self.population.getpopulation() - self.population.getrecovered()} ({(self.population.getpopulation() - self.population.getrecovered())/self.population.initialpopulation:.2%})\n"
+        s += f"  dead: {self.population.getdead()} ({self.population.getdead()/self.population.initialpopulation:.2%})\n\n"
 
-        s += f"  vaccinated: {self.population.getvaccinated()}\n"
-        s += f"  immunocompromised: {self.population.getimmunocompromised()}\n"
-        s += f"  asymptomatic: {self.population.getasymptomatic()}\n"    
-        s += f"  isolated: {self.population.getisolated()}\n"
-        s += f"  masked: {self.population.getmasked()}\n\n"
+        s += f"  vaccinated: {self.population.getvaccinated()} ({self.population.getvaccinated()/self.population.initialpopulation:.2%})\n"
+        s += f"  immunocompromised: {self.population.getimmunocompromised()} ({self.population.getimmunocompromised()/self.population.initialpopulation:.2%})\n\n"
+        s += f"  asymptomatic: {self.population.getasymptomatic()} ({self.population.getasymptomatic()/self.population.initialpopulation:.2%})\n"    
+        s += f"  isolated: {self.population.getisolated()} ({self.population.getisolated()/self.population.initialpopulation:.2%})\n"
+        s += f"  masked: {self.population.getmasked()} ({self.population.getmasked()/self.population.initialpopulation:.2%})\n\n"
 
         s += f"  vaccine_mandate: {self.government.vaccine_mandate}\n"
         s += f"  mask_mandate: {self.government.mask_mandate}\n"
         s += f"  isolate_mandate: {self.government.isolate_mandate}\n"
 
-        
-
-
-
         return s
 
+    def getplotinfo(self):
+        return {
+            "infected": self.population.getinfected(),
+            "recovered": self.population.getrecovered(),
+            "dead": self.population.getdead(),
+            "vaccinated": self.population.getvaccinated(),
+            "isolated": self.population.getisolated(),
+            "masked": self.population.getmasked(),
+            "immunocompromised": self.population.getimmunocompromised(),
+            "asymptomatic": self.population.getasymptomatic()}
               
 if __name__ == "__main__":
 
@@ -784,27 +787,46 @@ if __name__ == "__main__":
 
     print(sim)
 
+    plot_data = {
+        "infected": [],
+        "recovered": [],
+        "dead": [],
+        "vaccinated": [],
+        "isolated": [],
+        "masked": [],
+        "immunocompromised": [],
+        "asymptomatic": []
+    }
     while sim.step():
+        #clear console
+        os.system('cls' if os.name == 'nt' else 'clear')
         print(sim)
-
+        plot_info = sim.getplotinfo()
+        for key, value in plot_info.items():
+            plot_data[key].append(value)
+    
+    os.system('cls' if os.name == 'nt' else 'clear')
     print(sim)
 
+    import matplotlib.pyplot as plt
 
-    '''
-                if person.status == 'sick' or (person.status == 'infected' and person.incubation_period < 3):
-                    for p2 in population.graph.neighbors(p1):
-                        neighbor = population.graph.nodes[p2]["person"]
-                        if neighbor.status == 'healthy' and random.random() < (population.connection_odds if person.isolated else 1) * (population.connection_odds if neighbor.isolated else 1):
+    # Plot the collected data
+    plt.figure(figsize=(12, 8))
+    days = list(range(len(plot_data["infected"])))
 
+    plt.plot(days, plot_data["infected"], label='Infected', color='red')
+    plt.plot(days, plot_data["recovered"], label='Recovered', color='blue')
+    plt.plot(days, plot_data["dead"], label='Dead', color='black')
+    plt.plot(days, plot_data["vaccinated"], label='Vaccinated', color='purple')
+    plt.plot(days, plot_data["isolated"], label='Isolated', color='orange')
+    plt.plot(days, plot_data["masked"], label='Masked', color='green')
+    plt.plot(days, plot_data["immunocompromised"], label='Immunocompromised', color='brown')
+    plt.plot(days, plot_data["asymptomatic"], label='Asymptomatic', color='pink')
 
-                            recovery_chance = (1 - virus.recovered['infection'] if person.recovered else 1) * (1 - virus.recovered['contraction'] if neighbor.recovered else 1)
-                            vaccine_chance = (1 - virus.vaccine['infection'] if person.vaccinated else 1) * (1 - virus.vaccine['contraction'] if neighbor.vaccinated else 1)
-                            immuno_chance = (1 - virus.immuno['infection'] if person.immunocompromised else 1) * (1 - virus.immuno['contraction'] if neighbor.immunocompromised else 1)
-                            asymptomatic_chance = (1 - virus.asymptomatic['infection'] if person.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if neighbor.asymptomatic else 1)
-                            i = random.randint(0, len(virus.infectious) - 1)
-                            mask_chance = (1 - virus.effectiveness[i] if person.masked else 1) * (1 - virus.effectiveness[i] if neighbor.masked else 1)
-                            normal_odds = (virus.infectious[i] if person.masked else 1) * (virus.contract[i] if neighbor.masked else 1)             
-                            if random.random() < (recovery_chance * vaccine_chance * immuno_chance * asymptomatic_chance * mask_chance * normal_odds):
-                                neighbor.infect(virus.incubation_period)
-            
-                '''
+    plt.xlabel('Days')
+    plt.ylabel('Number of People')
+    plt.title('Virus Spread Simulation Over Time')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+

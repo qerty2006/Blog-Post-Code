@@ -3,70 +3,7 @@ import random
 from typing import List, Dict, Tuple, Union, Callable
 import os
 import matplotlib as plotty
-
-
-
-'''
-things to add:
-
-- Complex virus: 
-
-    Virus now has an incubation period, and can be spread during that period with a lower rate of transmission (Person counts as "infected" rather than sick)
-    - if not vaccinated, person will become sick after incubation period and only then can start recovery
-    - if vaccinated, person can start recovering during incubation period
-    - Cannot die during incubation period, but can spread
-
-    No mutations will be done
-
-    
-- Different Transmission dynamics:
-
-    instead of just 2 values Pu, Pc; they are arrays that act in pairs,
-    This also means that the masking effect can be an array
-
-    To trigger:
-
-    - Before running masking calc roll random index of Pu, and use that index for all calculations,
-        this simulating interaction through coughing, sneezing, direct contact, etc.
-        and Masking effects include wearing masks, washing hands, elbow coughing, etc.
-    - So odds of catching infection from sick person on a given day is: 
-        Pu[i] * Pc[i] *(1-(mask_effectiveness[i] if masked else 0) ) * (1-(mask_effectiveness[i] if masked else 0))
-
-
-- Complex Vaccinations: Pv has multiple components now:
-
-    2 types of vaccines:
-        - Long term immunity: fewer immunocompromised people can get this vaccine but it is more effective in the long run
-        - Short term immunity: more people can get this vaccine but it is less effective in the long run, wearing out after a few months
-        - Time for vaccine to take effect: Only after this time will a person be fully vaccinated and thus have the vaccination effects
-
-        what is key is that the size of this sim is small enough that the only part that matters is how many people can get the vaccine, not the duration of effect
-
-    
-- Dynamic Outbreak:
-    Simulate public reaction by giving people the ability to change their behavior based on the current situation
-    - People can choose to wear masks or not based on the overall percentage of sick rate
-    - People can choose to isolate themselves based on the overall percentage of sick rate, and also while they are sick (both result in 5% contact rate)
-    - People can choose to get vaccinated based on the overall percentage of sick rate if they are healthy
-
-
-- Public Health Measures:
-    Upon a given threshold of infections, trigger a public health measure:
-    - Mask mandate: all people must wear masks (resulting in 90% mask wearing rate)
-    - Quarantine: all people must isolate themselves when sick (resulting in 5% contact rate for sick people guaranteed when incubation ends, 65% chance each day to isolated while in incubation)
-    - Total lockdown: all people must isolate themselves (resulting in 5% contact rate for sick people guaranteed when incubation ends, 10% contact rate for healthy people)
-    - Vaccination campaign: all people must get vaccinated (resulting in 90% vaccination rate for short term vaccine, 60% for long term vaccine if vaccine exists)
-
-
-'''
-'''
-This will require an overhaul of how the simulation works, now actually having a Person Class that will be at each node.
-
-VirusSim will have the following components:
-    - A Virus that will infect others:
-    - A Population to be infected:
-    - A Government that will implement public health measures based on the current situation
-'''
+import time
 
 
 class Virus:
@@ -102,7 +39,23 @@ class Virus:
     - Vaccine time V.vaccine_time: int
     - Vaccination exist function: V.vaccine_exist: Callable[[int], bool]
     """
+    __slots__ = (
+        'name',
+        'recovery',
+        'death',
+        'incubation_period',
+        'vaccine_time',
+        'vaccine_exist',
+        'infectious',
+        'contract',
+        'effectiveness',
+        'asymptomatic',
+        'immuno',
+        'vaccine',
+        'recovered'
+    )
     def __init__(self, config = {}):
+        
         self.configure(config)
 
     def configure(self, config = {}):
@@ -114,9 +67,9 @@ class Virus:
         self.vaccine_exist = config.get('vaccine_exist', lambda x: False)
         
         transmission = [
-            config.get('infectious'),
-            config.get('contract'),
-            config.get('effectiveness'),
+            config.get('infectious', [0.5]),
+            config.get('contract', [0.5]),
+            config.get('effectiveness', [0.5]),
         ]
         if len(set(map(len, transmission))) == 1:
             self.infectious = transmission[0]
@@ -211,7 +164,7 @@ class Person:
     '''
     __slots__ = ('status', 'immunocompromised', 'recovered', 'asymptomatic', 'vaccinated', 'masked', 'isolated', 'vaccine_time', 'incubation_period')
 
-    def __init__(self, config):
+    def __init__(self, config = {}):
         self.status = config.get('status', 'healthy')
         self.immunocompromised = config.get('immunocompromised', False)
         self.recovered = config.get('recovered', False)
@@ -243,18 +196,19 @@ class Person:
     
     def sicken(self):
         self.status = 'sick' if self.incubation_period == 1 else self.status
-        self.incubation_period -= 1 if self.incubation_period > 0 else 0
+        self.incubation_period = max(0, self.incubation_period - 1)
     
     def vaccinate(self, vaccine_time):
-        self.vaccine_time = vaccine_time if self.vaccine_time == 0 and self.status != 'sick' else 0
+        self.vaccine_time = vaccine_time if (self.vaccine_time == 0 and self.status != 'sick' and not self.vaccinated) else self.vaccine_time
         
     def activatevaccine(self):
-        self.vaccinated = self.vaccine_time == 1
-        self.vaccine_time -= 1 if self.vaccine_time > 0 else 0
+        self.vaccinated = self.vaccinated or self.vaccine_time == 1 
+        self.vaccine_time = max(0, self.vaccine_time - 1)
 
     def recover(self):
         self.status = 'healthy'
         self.recovered = True
+        self.incubation_period = 0
 
     def mask(self):
         self.masked = True
@@ -291,13 +245,37 @@ class Population:
                 - odds of fail: Population.vaccinate_fail: float
 
         '''
+    
+    __slots__ = (
+        'days',
+        'population',
+        'initialpopulation',
+        'initial_infected',
+        'connection_odds',
+        'isolation_connection_odds',
+        'immuno_odds',
+        'vaccinated_odds',
+        'immunovacodds',
+        'asymptomatic_odds',
+        'mask_odds',
+        'mask_threshold',
+        'mask_floor',
+        'mask_fail',
+        'isolate_threshold',
+        'isolate_floor',
+        'isolate_fail',
+        'vaccinate_threshold',
+        'vaccinate_floor',
+        'vaccinate_fail',
+        'graph'
+    )
+    
     def __init__(self, config):
         self.days = 0
         self.population = config.get("Population", 0)
         self.initialpopulation = config.get("Population", 0)
         self.initial_infected = config.get('initial_infected', 0)
         
-        # Use dictionary unpacking for odds to reduce repetitive code
         odds_defaults = {
             'connection_odds': 0.1,
             'isolation_connection_odds': 0.1,
@@ -316,9 +294,8 @@ class Population:
             'vaccinate_floor': 0.1,
             'vaccinate_fail': 0.1
         }
-        
-        # Update self attributes using the config values or defaults
-        self.__dict__.update({key: config.get(key, default) for key, default in odds_defaults.items()})
+        for key, default in odds_defaults.items():
+            setattr(self, key, config.get(key, default))
 
         # Efficiently create the graph
         print(f"Creating graph with {self.population} nodes and {self.connection_odds} connection odds with fast graph")
@@ -334,7 +311,7 @@ class Population:
                     'status': 'healthy',
                     'immunocompromised': random.random() < self.immuno_odds,
                     'asymptomatic': (random.random() < self.asymptomatic_odds) and not (random.random() < self.immuno_odds),
-                    'vaccinated': random.random() < (self.vaccinated_odds if not (random.random() < self.immuno_odds) else self.immunovacodds),
+                    'vaccinated': random.random() < (self.vaccinated_odds if not (random.random() < self.immuno_odds) else self.immunovacodds * self.vaccinated_odds),
                     'masked': random.random() < self.mask_odds,
                     'recovered': False
                 })
@@ -396,6 +373,9 @@ class Population:
     def getisolated(self):
         return sum([1 for node in self.graph.nodes if self.graph.nodes[node]["person"].isolated])
 
+    def getnotfullyvaccinated(self):
+        return sum([1 for node in self.graph.nodes if self.graph.nodes[node]["person"].vaccine_time > 1])
+
 # Setters
     def vaccinatepopulation(self, vaccinatenum):
         #take random sample of population who's not vaccinated and vaccicnate them
@@ -452,7 +432,11 @@ class Government:
 
         
     '''
-
+    __slot__ = ('vaccinate_threshold', 'vaccinate_floor', 'vaccinate_amount', 'vaccinate_fail', 
+                'mask_threshold', 'mask_floor', 'mask_amount', 'mask_fail',
+                'isolate_threshold', 'isolate_floor', 'isolate_amount', 'isolate_fail',
+                'vaccine_mandate', 'mask_mandate', 'isolate_mandate')
+    
     def __init__(self, config):
         self.vaccinate_threshold = config.get('vaccinate_threshold', 0.1)
         self.vaccinate_floor = config.get('vaccinate_floor', 0.1)
@@ -473,13 +457,35 @@ class Government:
         self.mask_mandate = False
         self.isolate_mandate = False
         
+    def __str__(self):
+        s = "Government:\n"
+        s += f"  vaccinate_threshold: {self.vaccinate_threshold*100:.2f}% to activate mandate\n"
+        s += f"  vaccinate_floor: {self.vaccinate_floor*100:.2f}% to deactivate mandate\n"
+        s += f"  vaccinate_amount: {self.vaccinate_amount*100:.2f}%\n\n"    
+        s += f"  mask_threshold: {self.mask_threshold*100:.2f}% to activate mandate\n"
+        s += f"  mask_floor: {self.mask_floor*100:.2f}% to deactivate mandate\n"    
+        s += f"  mask_amount: {self.mask_amount*100:.2f}%\n\n"
+        s += f"  isolate_threshold: {self.isolate_threshold*100:.2f}% to activate mandate\n"
+        s += f"  isolate_floor: {self.isolate_floor*100:.2f}% to deactivate mandate\n"
+        s += f"  isolate_amount: {self.isolate_amount*100:.2f}%\n\n"
+        return s
+        
 class VirusSimulation():
-    def __init__(self, config):
-        self.virus = Virus(config["virus"])
-        self.population = Population(config["population"])
-        self.government = Government(config["government"])
+    __slots__ = ("virus","population","government")
     
-    def step(self):
+    def __init__(self, config, preinstalled = False):
+        if preinstalled:
+            self.virus: Virus = config[0]
+            self.population: Population = config[1]
+            self.government: Government = config[2]
+        else:
+            self.virus = Virus(config.get("virus",{}))
+            self.population = Population(config.get("population",{}))
+            self.government = Government(config.get("government",{}))
+            
+            
+    
+    def step(self, debug = False):
         virus = self.virus
         population = self.population
         government = self.government
@@ -550,6 +556,7 @@ class VirusSimulation():
                     person.sicken()  
             else if person.status == 'infected':
                 person.sicken()'''
+        vaccine_exists = virus.vaccine_exist(population.days)
         infected_percent = (population.getinfected()+population.getsick())/population.getpopulation()
         total_virus = population.getinfected() + population.getsick()
         masked_percent = population.getmasked()/population.getpopulation()
@@ -563,7 +570,8 @@ class VirusSimulation():
         infectnodes = set()
 
         def person_step(p1):
-            person = population.graph.nodes[p1]["person"]
+            person: Person = population.graph.nodes[p1]["person"]
+            person.activatevaccine()
                 
             if government.mask_mandate:
                 if masked_percent < government.mask_amount:
@@ -594,30 +602,29 @@ class VirusSimulation():
                     unisolate_chance = population.isolate_fail if person.status != 'sick' else population.isolate_fail/3
                     if random.random() < unisolate_chance:
                         person.unisolate()
-
-            if government.vaccine_mandate:
-                if vaccinated_percent < government.vaccinate_amount:
-                    if random.random() < (1-government.vaccinate_fail):
-                        person.vaccinate(virus.vaccine_time)
-            else:
-                if infected_percent > population.vaccinate_threshold:
-                    if random.random() < vaccinate_odds:
-                        person.vaccinate(virus.vaccine_time)
+            
+            if vaccine_exists:
+                if government.vaccine_mandate:
+                    if vaccinated_percent < government.vaccinate_amount:
+                        if random.random() < (1-government.vaccinate_fail):
+                            person.vaccinate(virus.vaccine_time)
+                else:
+                    if infected_percent > population.vaccinate_threshold:
+                        if random.random() < vaccinate_odds:
+                            person.vaccinate(virus.vaccine_time)
 
             # check for infections:
             if person.status == 'sick' or (person.status == 'infected' and person.incubation_period < 3):
                 for p2 in population.graph.neighbors(p1):
                     neighbor = population.graph.nodes[p2]["person"]
                     i = random.randint(0, len(virus.infectious) - 1)
-                    if neighbor.status == 'healthy' and random.random() < (population.connection_odds if person.isolated else 1) * (population.connection_odds if neighbor.isolated else 1):
+                    if neighbor.status == 'healthy' and random.random() < (population.isolation_connection_odds if person.isolated else 1) * (population.isolation_connection_odds if neighbor.isolated else 1):
                         if random.random() < (virus.infectious[i]) * (virus.contract[i]) * (1 - virus.immuno['infection'] if person.immunocompromised else 1) * (1 - virus.immuno['contraction'] if neighbor.immunocompromised else 1):
                             if random.random() < (1 - virus.vaccine['infection'] if person.vaccinated else 1) * (1 - virus.vaccine['contraction'] if neighbor.vaccinated else 1):
                                 if random.random() < (1- virus.effectiveness[i] if person.masked else 1) * (1 - virus.effectiveness[i] if neighbor.masked else 1):
                                     if random.random() < (1 - virus.recovered['infection'] if person.recovered else 1) * (1 - virus.recovered['contraction'] if neighbor.recovered else 1):
                                         if random.random() < (1 - virus.asymptomatic['infection'] if person.asymptomatic else 1) * (1 - virus.asymptomatic['contraction'] if neighbor.asymptomatic else 1):
                                             infectnodes.add(p2)
-
-
 
             if person.status == 'sick':
                 if random.random() < virus.death * (virus.asymptomatic['death'] if person.asymptomatic else 1) * (virus.immuno['death'] if person.immunocompromised else 1) * (virus.vaccine['death'] if person.vaccinated else 1) * (virus.recovered['death'] if person.recovered else 1):
@@ -629,20 +636,24 @@ class VirusSimulation():
                 person.sicken()
                 if person.vaccinated and (random.random() < virus.vaccine['recovery']):
                     person.incubation_period = 0
-                    person.recover()
-        
+                    person.recover()     
         if total_virus > 0:
             k : int = 0
+            start_time = time.time()
             for p1 in population.graph.nodes:
-                k += 1
-                print(f"\r {k} out of {len(population.graph.nodes)} status: {population.graph.nodes[p1]['person'].status}", end='')
+                if debug:
+                    k+=1
+                    status = population.graph.nodes[p1]["person"].status
+                    t= time.time() - start_time
+                    pps = str(round(((k/(t))), 2) if t != 0 else "∞") 
+                    print(f"\r {k}{' ' * (5-len(str(k)))} out of {len(population.graph.nodes)} | status: {status}{' ' * (8-len((status)))} | people/s: {pps}{' ' * (10-len(pps))}", end='')
                 person_step(p1)
                 
                 
-            infected_percent = population.getinfected() / population.getpopulation()
+            infected_percent = (population.getinfected()+population.getsick()) / population.getpopulation()
             dead_percent = population.getdead() / population.getpopulation()
             
-            hit_threshold = lambda x : (infected_percent > x) or (dead_percent > x)
+            hit_threshold = lambda x : (infected_percent > x) or (dead_percent/2 > x)
             hit_floor = lambda x : (infected_percent < x) and not hit_threshold(x)
             multiplex = lambda p,q,r : (not r and (p or q)) or (r and (p and q))  # (NOT R AND (P OR Q)) OR (R AND (P AND Q))
                 
@@ -656,33 +667,78 @@ class VirusSimulation():
             for infected in infectnodes:
                 population.graph.nodes[infected]["person"].infect(virus.incubation_period)
 
+            if debug: 
+                os.system('cls' if os.name == 'nt' else 'clear')
+                print(self)
             return (population.getsick()+population.getinfected())   
           
-
-
     def __str__(self):
         s = f"Day {self.population.days}:\n"
-        s += f"  healthy: {self.population.gethealthy()} ({self.population.gethealthy()/self.population.initialpopulation:.2%})\n"
-        s += f"  infected: {self.population.getinfected()} ({self.population.getinfected()/self.population.initialpopulation:.2%})\n"
-        s += f"  sick: {self.population.getsick()} ({self.population.getsick()/self.population.initialpopulation:.2%})\n"
-        s += f"  recovered: {self.population.getrecovered()} ({self.population.getrecovered()/self.population.initialpopulation:.2%})\n"
-        s += f"  untouched: {self.population.getpopulation() - self.population.getrecovered()} ({(self.population.getpopulation() - self.population.getrecovered())/self.population.initialpopulation:.2%})\n"
-        s += f"  dead: {self.population.getdead()} ({self.population.getdead()/self.population.initialpopulation:.2%})\n\n"
+        s += f"  healthy: {self.population.gethealthy()} ({self.population.gethealthy()/self.population.initialpopulation:.2%} of original population)\n"
+        s += f"  infected: {self.population.getinfected()} ({self.population.getinfected()/self.population.initialpopulation:.2%} of original population)\n"
+        s += f"  sick: {self.population.getsick()} ({self.population.getsick()/self.population.initialpopulation:.2%} of original population)\n"
+        s += f"  recovered: {self.population.getrecovered()} ({self.population.getrecovered()/self.population.initialpopulation:.2%} of original population)\n"
+        s += f"  untouched: {self.population.getpopulation() - self.population.getrecovered() - self.population.getinfected()} ({(self.population.getpopulation() - self.population.getrecovered())/self.population.initialpopulation:.2%} of original population)\n"
+        s += f"  dead: {self.population.getdead()} ({self.population.getdead()/self.population.initialpopulation:.2%} of original population)\n\n"
 
-        s += f"  vaccinated: {self.population.getvaccinated()} ({self.population.getvaccinated()/self.population.initialpopulation:.2%})\n"
-        s += f"  immunocompromised: {self.population.getimmunocompromised()} ({self.population.getimmunocompromised()/self.population.initialpopulation:.2%})\n\n"
-        s += f"  asymptomatic: {self.population.getasymptomatic()} ({self.population.getasymptomatic()/self.population.initialpopulation:.2%})\n"    
-        s += f"  isolated: {self.population.getisolated()} ({self.population.getisolated()/self.population.initialpopulation:.2%})\n"
-        s += f"  masked: {self.population.getmasked()} ({self.population.getmasked()/self.population.initialpopulation:.2%})\n\n"
+        s += f"  notfullyvaccinated: {self.population.getnotfullyvaccinated()} ({self.population.getnotfullyvaccinated()/self.population.population:.2%} of current population)\n"
+        s += f"  vaccinated: {self.population.getvaccinated()} ({self.population.getvaccinated()/self.population.population:.2%} of current population)\n"
+        s += f"  immunocompromised: {self.population.getimmunocompromised()} ({self.population.getimmunocompromised()/self.population.population:.2%} of current population)\n\n"
+        s += f"  asymptomatic: {self.population.getasymptomatic()} ({self.population.getasymptomatic()/self.population.population:.2%} of current population)\n"    
+        s += f"  isolated: {self.population.getisolated()} ({self.population.getisolated()/self.population.population:.2%} of current population)\n"
+        s += f"  masked: {self.population.getmasked()} ({self.population.getmasked()/self.population.population:.2%} of current population)\n\n"
 
         s += f"  vaccine_mandate: {self.government.vaccine_mandate}\n"
+        s += f"     mandate met: {(self.population.getmasked()/self.population.getpopulation()) > self.government.mask_threshold}\n"
         s += f"  mask_mandate: {self.government.mask_mandate}\n"
+        s += f"     mandate met: {(self.population.getmasked()/self.population.getpopulation()) > self.government.isolate_threshold}\n"
         s += f"  isolate_mandate: {self.government.isolate_mandate}\n"
+        s += f"     mandate met: {(self.population.getisolated()/self.population.getpopulation()) > self.government.vaccinate_threshold}\n"
 
         return s
 
+    def get_simulation_info(self):
+        return {
+            "Day": self.population.days,
+            "original_healthy": self.population.initialpopulation,
+            "end_healthy": self.population.gethealthy(),
+            "orignal_infected": self.population.initial_infected,
+            "end_infected": self.population.getinfected(),
+            "sick": self.population.getsick(),
+            "recovered": self.population.getrecovered(),
+            "untouched": self.population.getpopulation() - self.population.getrecovered() - self.population.getinfected(),
+            "dead": self.population.getdead(),
+            
+            "percentage_died": self.population.getdead() / self.population.initialpopulation,
+            "percentage_untouched": (self.population.getpopulation() - self.population.getrecovered() - self.population.getinfected()) / self.population.initialpopulation,
+            
+            "notfullyvaccinated": self.population.getnotfullyvaccinated(),
+            
+            "original_vaccinated": self.population.initialpopulation * self.population.vaccinated_odds,
+            "vaccinated": self.population.getvaccinated(),
+            "end_vaccinated_percentage": self.population.getvaccinated() / self.population.initialpopulation,
+            
+            "original_immunocompromised": self.population.initialpopulation * self.population.immuno_odds,
+            "immunocompromised": self.population.getimmunocompromised(),
+            "end_immunocompromised_percentage": self.population.getimmunocompromised() / self.population.initialpopulation,
+            
+            "original_asymptomatic": self.population.initialpopulation * self.population.asymptomatic_odds,
+            "asymptomatic": self.population.getasymptomatic(),
+            "end_asymptomatic_percentage": self.population.getasymptomatic() / self.population.initialpopulation,
+            
+            "isolated": self.population.getisolated(),
+            "end_isolated_percentage": self.population.getisolated() / self.population.initialpopulation,
+            
+            "original_masked": self.population.initialpopulation * self.population.mask_odds,
+            "masked": self.population.getmasked(),
+            "end_masked_percentage": self.population.getmasked() / self.population.initialpopulation,
+            
+            
+        }
+    
     def getplotinfo(self):
         return {
+            "healthy": self.population.getpopulation() - self.population.getinfected(),
             "infected": self.population.getinfected(),
             "recovered": self.population.getrecovered(),
             "dead": self.population.getdead(),
@@ -691,129 +747,39 @@ class VirusSimulation():
             "masked": self.population.getmasked(),
             "immunocompromised": self.population.getimmunocompromised(),
             "asymptomatic": self.population.getasymptomatic()}
-              
+
+    def bigsim(self, max_steps = 1000, debug = False):
+        if debug:
+            print(self)
+        while self.step(debug) and self.population.days<max_steps:
+            if not debug:
+                print(f"Day: {self.population.days}{6-str(self.population.days)}", end="\r")
+        return self
+
+
 if __name__ == "__main__":
-
-    test_virus_config = {
-        "name": "default",
-        "recoveryOdds": 0.1,
-        "deathOdds": 0.01,
-        "incubation_period": 5,
-        "vaccine_time": 14,
-        "vaccine_exist": lambda x: True,
-        "infectious": [0.3, 0.2, 0.1],
-        "contract": [0.9, 0.95, 0.1],
-        "effectiveness": [0.7, 0.95, 0.1],
-
-        "asymptomatic_infection": 1,
-        "asymptomatic_contraction": 1,
-        "asymptomatic_recovery": 0.1,
-        "asymptomatic_death": 0.01,
-
-        "immuno_infection": 1,
-        "immuno_contraction": 1,
-        "immuno_recovery": 0.1,
-        "immuno_death": 0.01,
-
-        "vaccine_infection": 1,
-        "vaccine_contraction": 1,
-        "vaccine_recovery": 0.1,
-        "vaccine_death": 0.01,
-
-        "recovered_infection": 1,
-        "recovered_contraction": 1,
-        "recovered_recovery": 0.1,
-        "recovered_death": 0.1,
-    }
-
-    virus = Virus(test_virus_config)
-    print(virus)
-
-
-
-
-    test_population_config = {
-        "Population": 50000,
-        "initial_infected": 10,
-        "connection_odds": 0.01,
-        "isolation_connection_odds": 0.005,
-        "immune_odds": 0.1,
-        "vaccinated_odds": 0.1,
-        "immunovacodds": 0.05,
-        "asymptomatic_odds": 0.1,
-        "mask_odds": 0.1,
-        "mask_threshold": 0.1,
-        "mask_floor": 0.05,
-        "mask_fail": 0.1,
-        "isolate_threshold": 0.1,
-        "isolate_floor": 0.05,
-        "isolate_fail": 0.1,
-        "vaccinate_threshold": 0.1,
-        "vaccinate_fail": 0.1,
-    }
-
-    test_government_config = {
-        "vaccinate_threshold": 0.1,
-        "vaccinate_floor": 0.05,
-        "vaccinate_amount": 0.1,
-        "mask_threshold": 0.1,
-        "mask_floor": 0.05,
-        "mask_amount": 0.1,
-        "isolate_threshold": 0.1,
-        "isolate_floor": 0.05,
-        "isolate_amount": 0.1,
-    }
-
-    test_sim_config = {
-        "virus": test_virus_config,
-        "population": test_population_config,
-        "government": test_government_config,
-    }
-
-    sim = VirusSimulation(test_sim_config)
-
-    print(sim)
-
-    plot_data = {
-        "infected": [],
-        "recovered": [],
-        "dead": [],
-        "vaccinated": [],
-        "isolated": [],
-        "masked": [],
-        "immunocompromised": [],
-        "asymptomatic": []
-    }
-    while sim.step():
-        #clear console
-        os.system('cls' if os.name == 'nt' else 'clear')
-        print(sim)
-        plot_info = sim.getplotinfo()
-        for key, value in plot_info.items():
-            plot_data[key].append(value)
+    virus: Virus = Virus()
+    person = Person()
+    print("Healthy Person")
+    print(person)
+    print()
+    person.vaccinate(virus.vaccine_time)
+    print("Vaccinated Person, Not fully")
+    print(person)
+    print()
+    print("Infected not sick")
+    person.infect(20)
+    print(person)
+    print()
     
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(sim)
-
-    import matplotlib.pyplot as plt
-
-    # Plot the collected data
-    plt.figure(figsize=(12, 8))
-    days = list(range(len(plot_data["infected"])))
-
-    plt.plot(days, plot_data["infected"], label='Infected', color='red')
-    plt.plot(days, plot_data["recovered"], label='Recovered', color='blue')
-    plt.plot(days, plot_data["dead"], label='Dead', color='black')
-    plt.plot(days, plot_data["vaccinated"], label='Vaccinated', color='purple')
-    plt.plot(days, plot_data["isolated"], label='Isolated', color='orange')
-    plt.plot(days, plot_data["masked"], label='Masked', color='green')
-    plt.plot(days, plot_data["immunocompromised"], label='Immunocompromised', color='brown')
-    plt.plot(days, plot_data["asymptomatic"], label='Asymptomatic', color='pink')
-
-    plt.xlabel('Days')
-    plt.ylabel('Number of People')
-    plt.title('Virus Spread Simulation Over Time')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
+    while person.vaccine_time>0:
+        person.activatevaccine()
+        person.vaccinate(virus.vaccine_time)
+        print(person)
+        print()
+    
+    while person.incubation_period>0:
+        person.sicken()
+        print(person)
+        print()
+ 
