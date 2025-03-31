@@ -5,13 +5,15 @@ import matplotlib.pyplot as plt
 import time
 import pandas as pd
 
+# This main file allows testing multiple configurations of the virus and sending the data to csvs
+
 default_virus_config = {
     "name": "default", # name of the virus
     "recoveryOdds": 0.1, # recovery odds
     "deathOdds": 0.03, # death odds
     "incubation_period": 5, # incubation period
     "vaccine_time": 14, # time for vaccine to be effective
-    "vaccine_exist": lambda day: day > 0, # function to check if vaccine exists
+    "vaccine_exist": lambda day: day > 60, # function to check if vaccine exists
     
     "infectious": [0.3, 0.2, 0.1], # infectiousness by various means
     "contract": [0.9, 0.95, 0.1], # contraction by various means
@@ -76,11 +78,11 @@ default_government_config = {
     "isolate_amount": 0.8,
     "isolate_fail": 0.1,
 }
-test_sim_config = {
-    "virus": default_virus_config,
-    "population": default_population_config,
-    "government": default_government_config,
-}
+test_sim_config = [
+    default_virus_config,
+    default_population_config,
+    default_government_config
+]
 
 
 def runstatssim(default_virus_config, default_population_config, default_government_config, iters = 10, debug = False):
