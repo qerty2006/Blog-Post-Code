@@ -675,7 +675,8 @@ class VirusSimulation():
             return (population.getsick()+population.getinfected())   
           
     def __str__(self):
-        s = f"Day {self.population.days}:\n"
+        s = f"Name of virus: {self.virus.name}\n"
+        s += f"Day {self.population.days}:\n"
         s += f"  healthy: {self.population.gethealthy()} ({self.population.gethealthy()/self.population.initialpopulation:.2%} of original population)\n"
         s += f"  infected: {self.population.getinfected()} ({self.population.getinfected()/self.population.initialpopulation:.2%} of original population)\n"
         s += f"  sick: {self.population.getsick()} ({self.population.getsick()/self.population.initialpopulation:.2%} of original population)\n"

@@ -6,14 +6,13 @@ import time
 import pandas as pd
 
 # This main file allows testing a single configuration and they plot it with matplotlib
-
 default_virus_config = {
-    "name": "default", # name of the virus
+    "name": "60 Days till a Vaccine", # name of the virus
     "recoveryOdds": 0.1, # recovery odds
     "deathOdds": 0.03, # death odds
     "incubation_period": 5, # incubation period
     "vaccine_time": 14, # time for vaccine to be effective
-    "vaccine_exist": lambda day: day < 0, # function to check if vaccine exists
+    "vaccine_exist": lambda day: day > 60, # function to check if vaccine exists
     
     "infectious": [0.3, 0.2, 0.1], # infectiousness by various means
     "contract": [0.9, 0.95, 0.1], # contraction by various means
@@ -43,16 +42,16 @@ default_population_config = {
     "Population": 50000, # number of people
     "initial_infected": 10, # number of initially infected
     "connection_odds": 0.01, # odds of connection between 2 people
-    "isolation_connection_odds": 0.01, # odds of connection between 2 people while isolated
+    "isolation_connection_odds": 0.1, # odds of connection between 2 people while isolated
     "immuno_odds": 0.04,
-    "vaccinated_odds": .75,
+    "vaccinated_odds": 0.0,
     "asymptomatic_odds": 0.1,
     "mask_odds": 0.0,
-    "immunovacodds": 0.25,
+    "immunovacodds": 0.5,
     
     "mask_threshold": 0.1,
     "mask_floor": 0.05,
-    "mask_fail": 0.8,
+    "mask_fail": 0.1,
     
     "isolate_threshold": 0.1,
     "isolate_floor": 0.05,
@@ -60,25 +59,25 @@ default_population_config = {
     
     "vaccinate_threshold": 0.1,
     "vaccinate_floor": 0.05,
-    "vaccinate_fail": 0.8,
+    "vaccinate_fail": 0.99,
 }
 default_government_config = {
-    "vaccinate_threshold": 1, # Government triggers vaccination campaign at 1% infection
-    "vaccinate_floor": 1, # Mandate deactivates at 0.5%
-    "vaccinate_amount": 0.99, # wants everyone to be vaccinated
-    "vaccinate_fail": 0.99, # Only 0.001% of unvaccinated people get vaccinated on a given day
+    "vaccinate_threshold": 0.1,
+    "vaccinate_floor": 0.07,
+    "vaccinate_amount": 0.99,
+    "vaccinate_fail": 0.1,
 
-    "mask_threshold": 1, # Government triggers mask mandate at 10% infection
-    "mask_floor": 1, # Mandate deactivates at 0.5%
-    "mask_amount": 0.99, # wants everyone to wear masks
-    "mask_fail": 0.8, # Only 0.001% of unmasked people start wearing masks on a given day
+    "mask_threshold": 0.1,
+    "mask_floor": 0.07,
+    "mask_amount": 0.9,
+    "mask_fail": 0.1,
 
-    "isolate_threshold":1, # Government triggers isolation mandate at 10% infection
-    "isolate_floor": 1, # Mandate deactivates at 0.5%
-    "isolate_amount": 0.8, # wants almost everyone to be isolated
-    "isolate_fail": 0.5, # Only 0.001% of healthy people start isolating on a given day
-    "sick_isolate_fail": 0.01 # If sick, forced to isolate
+    "isolate_threshold": 0.1,
+    "isolate_floor": 0.07,
+    "isolate_amount": 0.8,
+    "isolate_fail": 0.1,
 }
+
 test_sim_config = {
     "population": default_population_config,
     "government": default_government_config, 

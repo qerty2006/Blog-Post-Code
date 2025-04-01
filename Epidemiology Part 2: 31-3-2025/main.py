@@ -8,7 +8,7 @@ import pandas as pd
 # This main file allows testing multiple configurations of the virus and sending the data to csvs
 
 default_virus_config = {
-    "name": "default", # name of the virus
+    "name": "60 Days till a Vaccine", # name of the virus
     "recoveryOdds": 0.1, # recovery odds
     "deathOdds": 0.03, # death odds
     "incubation_period": 5, # incubation period
